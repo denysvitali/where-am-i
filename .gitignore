@@ -1,0 +1,22 @@
+bin/
+*.log
+.env
+config.yaml
+config.json
+config.toml
+
+# Nix
+result
+result-*
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+**/*.pb.go

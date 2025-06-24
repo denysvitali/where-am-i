@@ -1,0 +1,80 @@
+project_name: where-am-i
+
+before:
+  hooks:
+    - go mod tidy
+    - buf generate
+
+builds:
+  - main: ./cmd/where-am-i
+    binary: where-am-i
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    flags:
+      - -trimpath
+
+archives:
+  - format: tar.gz
+    # this name template makes the OS and Arch compatible with the results of uname.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+    - goos: windows
+      format: zip
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - '^style:'
+      - Merge pull request
+      - Merge branch
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}} v{{.Version}}"
+  header: |
+    ## Release {{.Tag}} ({{.Date}})
+    
+    Welcome to this new release of {{.ProjectName}}!
+    
+  footer: |
+    ## Docker Images
+    
+    Docker images are available at:
+    - `ghcr.io/denysvitali/where-am-i:{{.Tag}}`
+    - `ghcr.io/denysvitali/where-am-i:latest`
+
+brews:
+  - repository:
+      owner: denysvitali
+      name: homebrew-tap
+    homepage: "https://github.com/denysvitali/where-am-i"
+    description: "Find your location using WiFi networks via Apple's Wireless Positioning System"
+    license: "MIT"

@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+LICENSE.txt
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Build artifacts
+bin/
+dist/
+
+# Test files
+*.test
+*.prof
+coverage.out
+
+# Go vendor (if using)
+vendor/
+
+# CI/CD
+.github/
+
+# Nix
+flake.nix
+flake.lock
+
+# Example files
+config.example.yaml
+
+# Makefile
+Makefile

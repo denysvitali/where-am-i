@@ -152,22 +152,34 @@ func (c *Client) fetchInner(bssids []string, maxAdditionalResults int) (*pb.ALSL
 	var buf bytes.Buffer
 
 	// Write header
-	binary.Write(&buf, binary.BigEndian, uint16(1)) // hardcoded
+	if err := binary.Write(&buf, binary.BigEndian, uint16(1)); err != nil {
+		return nil, fmt.Errorf("failed to write header: %w", err)
+	}
 
 	locale := []byte(c.config.Request.Locale)
-	binary.Write(&buf, binary.BigEndian, uint16(len(locale)))
+	if err := binary.Write(&buf, binary.BigEndian, uint16(len(locale))); err != nil {
+		return nil, fmt.Errorf("failed to write locale length: %w", err)
+	}
 	buf.Write(locale)
 
 	identifier := []byte(c.config.Request.Identifier)
-	binary.Write(&buf, binary.BigEndian, uint16(len(identifier)))
+	if err := binary.Write(&buf, binary.BigEndian, uint16(len(identifier))); err != nil {
+		return nil, fmt.Errorf("failed to write identifier length: %w", err)
+	}
 	buf.Write(identifier)
 
 	version := []byte(c.config.Request.Version)
-	binary.Write(&buf, binary.BigEndian, uint16(len(version)))
+	if err := binary.Write(&buf, binary.BigEndian, uint16(len(version))); err != nil {
+		return nil, fmt.Errorf("failed to write version length: %w", err)
+	}
 	buf.Write(version)
 
-	binary.Write(&buf, binary.BigEndian, uint32(1)) // request code
-	binary.Write(&buf, binary.BigEndian, uint32(len(protobufData)))
+	if err := binary.Write(&buf, binary.BigEndian, uint32(1)); err != nil {
+		return nil, fmt.Errorf("failed to write request code: %w", err)
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(protobufData))); err != nil {
+		return nil, fmt.Errorf("failed to write protobuf data length: %w", err)
+	}
 	buf.Write(protobufData)
 
 	// Create HTTP request
@@ -186,7 +198,11 @@ func (c *Client) fetchInner(bssids []string, maxAdditionalResults int) (*pb.ALSL
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			c.log.WithError(closeErr).Warn("Failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("non-200 response code: %d", resp.StatusCode)

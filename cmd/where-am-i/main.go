@@ -133,12 +133,24 @@ func init() {
 	scanCmd.Flags().Int("max-networks", 0, "maximum number of networks to scan (0 = no limit)")
 
 	// Bind flags to viper
-	viper.BindPFlag("server.url", locateCmd.Flags().Lookup("server-url"))
-	viper.BindPFlag("server.connect_timeout", locateCmd.Flags().Lookup("connect-timeout"))
-	viper.BindPFlag("server.read_timeout", locateCmd.Flags().Lookup("read-timeout"))
-	viper.BindPFlag("server.enforce_modern_tls", locateCmd.Flags().Lookup("enforce-modern-tls"))
-	viper.BindPFlag("request.max_request_networks", locateCmd.Flags().Lookup("max-networks"))
-	viper.BindPFlag("request.min_rssi", locateCmd.Flags().Lookup("min-rssi"))
+	if err := viper.BindPFlag("server.url", locateCmd.Flags().Lookup("server-url")); err != nil {
+		panic(fmt.Sprintf("failed to bind server.url flag: %v", err))
+	}
+	if err := viper.BindPFlag("server.connect_timeout", locateCmd.Flags().Lookup("connect-timeout")); err != nil {
+		panic(fmt.Sprintf("failed to bind server.connect_timeout flag: %v", err))
+	}
+	if err := viper.BindPFlag("server.read_timeout", locateCmd.Flags().Lookup("read-timeout")); err != nil {
+		panic(fmt.Sprintf("failed to bind server.read_timeout flag: %v", err))
+	}
+	if err := viper.BindPFlag("server.enforce_modern_tls", locateCmd.Flags().Lookup("enforce-modern-tls")); err != nil {
+		panic(fmt.Sprintf("failed to bind server.enforce_modern_tls flag: %v", err))
+	}
+	if err := viper.BindPFlag("request.max_request_networks", locateCmd.Flags().Lookup("max-networks")); err != nil {
+		panic(fmt.Sprintf("failed to bind request.max_request_networks flag: %v", err))
+	}
+	if err := viper.BindPFlag("request.min_rssi", locateCmd.Flags().Lookup("min-rssi")); err != nil {
+		panic(fmt.Sprintf("failed to bind request.min_rssi flag: %v", err))
+	}
 
 	rootCmd.AddCommand(locateCmd)
 	rootCmd.AddCommand(scanCmd)
@@ -242,7 +254,11 @@ func locateRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create WiFi scanner: %w", err)
 		}
-		defer scanner.Close()
+		defer func() {
+			if closeErr := scanner.Close(); closeErr != nil {
+				logger.WithError(closeErr).Warn("Failed to close WiFi scanner")
+			}
+		}()
 
 		// Get max networks and min RSSI from configuration
 		maxNetworks, _ := cmd.Flags().GetInt("max-networks")
@@ -562,7 +578,11 @@ func scanRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create WiFi scanner: %w", err)
 	}
-	defer scanner.Close()
+	defer func() {
+		if closeErr := scanner.Close(); closeErr != nil {
+			logger.WithError(closeErr).Warn("Failed to close WiFi scanner")
+		}
+	}()
 
 	// Validate WiFi interface availability
 	if err := scanner.ValidateInterface(); err != nil {

@@ -65,7 +65,7 @@ func EstimateDistanceFromRSSI(rssi int32) (distance, variance float64) {
 
 	// Calculate variance based on shadowing effects and measurement uncertainty
 	// The uncertainty increases quadratically with distance due to propagation model
-	shadowingVar := math.Pow(shadowingStdDev, 2)
+	shadowingVar := shadowingStdDev * shadowingStdDev
 
 	// Distance uncertainty scales with distance due to logarithmic relationship
 	// and the quadratic nature of signal propagation

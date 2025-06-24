@@ -14,6 +14,7 @@ import (
 	"github.com/denysvitali/where-am-i/internal/applewps"
 	"github.com/denysvitali/where-am-i/internal/triangulation"
 	"github.com/denysvitali/where-am-i/internal/types"
+	"github.com/denysvitali/where-am-i/internal/wifi"
 )
 
 var (
@@ -60,8 +61,9 @@ When RSSI values are provided, the tool will:
 2. Perform triangulation using multiple access points
 3. Provide estimated location with confidence scores
 
-RSSI values should be in dBm (typically -10 to -100).`,
-	Args: cobra.MinimumNArgs(1),
+RSSI values should be in dBm (typically -10 to -100).
+
+Alternatively, use --auto-scan to automatically discover nearby WiFi networks.`,
 	RunE: locateRun,
 	Example: `  # Locate single WiFi network
   where-am-i locate aa:bb:cc:dd:ee:ff
@@ -72,8 +74,33 @@ RSSI values should be in dBm (typically -10 to -100).`,
   # Multiple networks with triangulation
   where-am-i locate aa:bb:cc:dd:ee:ff:-45 11:22:33:44:55:66:-60 22:33:44:55:66:77:-70
 
+  # Auto-scan nearby networks and locate
+  where-am-i locate --auto-scan
+
   # Output as JSON
   where-am-i locate --format json aa:bb:cc:dd:ee:ff:-45`,
+}
+
+// scanCmd represents the scan command
+var scanCmd = &cobra.Command{
+	Use:   "scan",
+	Short: "Scan for nearby WiFi networks and display their BSSIDs",
+	Long: `Scan for nearby WiFi networks using the system's WiFi interface.
+This uses Linux's nl80211/netlink interface to discover access points
+without requiring root privileges on most systems.
+
+Note: Signal strength (RSSI) values are not available from scan results
+due to limitations in the WiFi library. The scan will only return BSSID
+(MAC address) information.`,
+	RunE: scanRun,
+	Example: `  # Scan for WiFi networks
+  where-am-i scan
+
+  # Scan and format for use with locate command
+  where-am-i scan --format args
+
+  # Limit number of results
+  where-am-i scan --max-networks 10`,
 }
 
 func main() {
@@ -99,6 +126,11 @@ func init() {
 	locateCmd.Flags().Int("max-networks", 40, "maximum number of networks to request")
 	locateCmd.Flags().Int32("min-rssi", -90, "minimum RSSI to include access point (dBm)")
 	locateCmd.Flags().Bool("show-aps", false, "show individual access points in output")
+	locateCmd.Flags().Bool("auto-scan", false, "automatically scan for nearby WiFi networks")
+
+	// Scan command flags
+	scanCmd.Flags().StringVarP(&format, "format", "f", "table", "output format (table, json, args)")
+	scanCmd.Flags().Int("max-networks", 0, "maximum number of networks to scan (0 = no limit)")
 
 	// Bind flags to viper
 	viper.BindPFlag("server.url", locateCmd.Flags().Lookup("server-url"))
@@ -109,6 +141,7 @@ func init() {
 	viper.BindPFlag("request.min_rssi", locateCmd.Flags().Lookup("min-rssi"))
 
 	rootCmd.AddCommand(locateCmd)
+	rootCmd.AddCommand(scanCmd)
 }
 
 // initConfig reads in config file and ENV variables
@@ -195,17 +228,53 @@ func locateRun(cmd *cobra.Command, args []string) error {
 		logger.WithField("config", config).Debug("Loaded configuration")
 	}
 
-	// Parse WiFi inputs (supports both "BSSID" and "BSSID:RSSI" formats)
+	var wifiInputs []types.WifiInput
+	var err error
+
+	// Check if auto-scan is enabled
+	autoScan, _ := cmd.Flags().GetBool("auto-scan")
+	
+	if autoScan && len(args) == 0 {
+		// Auto-scan for WiFi networks
+		logger.Info("Auto-scanning for nearby WiFi networks...")
+		
+		scanner, err := wifi.NewScanner(logger)
+		if err != nil {
+			return fmt.Errorf("failed to create WiFi scanner: %w", err)
+		}
+		defer scanner.Close()
+
+		// Get max networks and min RSSI from configuration
+		maxNetworks, _ := cmd.Flags().GetInt("max-networks")
+		minRSSI, _ := cmd.Flags().GetInt32("min-rssi")
+		
+		wifiInputs, err = scanner.ScanWithOptions(minRSSI, maxNetworks)
+		if err != nil {
+			return fmt.Errorf("failed to scan WiFi networks: %w", err)
+		}
+
+		if len(wifiInputs) == 0 {
+			return fmt.Errorf("no WiFi networks found during scan")
+		}
+
+		logger.WithField("scanned_networks", len(wifiInputs)).Info("Found WiFi networks")
+	} else {
+		// Parse WiFi inputs from command line arguments (supports both "BSSID" and "BSSID:RSSI" formats)
+		if len(args) == 0 {
+			return fmt.Errorf("no WiFi inputs provided (use --auto-scan to scan automatically)")
+		}
+		
+		wifiInputs, err = applewps.ParseWifiInputs(args)
+		if err != nil {
+			return fmt.Errorf("failed to parse WiFi inputs: %w", err)
+		}
+
+		if len(wifiInputs) == 0 {
+			return fmt.Errorf("no valid WiFi inputs provided")
+		}
+	}
+
 	client := applewps.NewClient(&config, logger)
-	wifiInputs, err := applewps.ParseWifiInputs(args)
-	if err != nil {
-		return fmt.Errorf("failed to parse WiFi inputs: %w", err)
-	}
-
-	if len(wifiInputs) == 0 {
-		return fmt.Errorf("no valid WiFi inputs provided")
-	}
-
 	logger.WithField("wifi_inputs", len(wifiInputs)).Info("Querying Apple WPS for positioning data")
 
 	// Check if any inputs have RSSI values
@@ -226,7 +295,7 @@ func locateRun(cmd *cobra.Command, args []string) error {
 		showAPs, _ := cmd.Flags().GetBool("show-aps")
 		return outputResultsWithTriangulation(results, tri, format, showAPs)
 	} else {
-		// Fall back to original method for backward compatibility
+		// Fall back to original method, but try to provide a best-guess location
 		var bssids []string
 		for _, input := range wifiInputs {
 			bssids = append(bssids, input.BSSID)
@@ -236,7 +305,14 @@ func locateRun(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to fetch positioning data: %w", err)
 		}
-		return outputResults(results, format)
+
+		// If we have multiple access points, try to calculate a simple centroid
+		// This gives a better user experience than just showing individual APs
+		if len(results) > 1 && autoScan {
+			return outputResultsWithSimpleLocation(results, format, false)
+		} else {
+			return outputResults(results, format)
+		}
 	}
 }
 
@@ -397,5 +473,169 @@ func outputTriangulationTable(results []types.WifiApPositioningData, triangulati
 		}
 	}
 
+	return nil
+}
+
+func outputResultsWithSimpleLocation(results []types.WifiApPositioningData, format string, showAPs bool) error {
+	// Filter out results without positioning data
+	var validResults []types.WifiApPositioningData
+	for _, result := range results {
+		if result.PositioningData != nil {
+			validResults = append(validResults, result)
+		}
+	}
+
+	if len(validResults) == 0 {
+		return fmt.Errorf("no access points with location data found")
+	}
+
+	// Calculate simple centroid (average) of all access points
+	var latSum, lonSum float64
+	var accuracySum int32
+	for _, result := range validResults {
+		latSum += result.PositioningData.Latitude
+		lonSum += result.PositioningData.Longitude
+		accuracySum += result.PositioningData.Accuracy
+	}
+
+	avgLat := latSum / float64(len(validResults))
+	avgLon := lonSum / float64(len(validResults))
+	avgAccuracy := int(accuracySum) / len(validResults)
+
+	// Create a simple location result
+	simpleLocation := struct {
+		EstimatedLocation struct {
+			Latitude        float64 `json:"latitude"`
+			Longitude       float64 `json:"longitude"`
+			Accuracy        int     `json:"accuracy_meters"`
+			GoogleMapsLink  string  `json:"google_maps_link"`
+			AccessPointsUsed int    `json:"access_points_used"`
+			Note            string  `json:"note"`
+		} `json:"estimated_location"`
+		AccessPoints []types.WifiApPositioningData `json:"access_points,omitempty"`
+	}{}
+
+	simpleLocation.EstimatedLocation.Latitude = avgLat
+	simpleLocation.EstimatedLocation.Longitude = avgLon
+	simpleLocation.EstimatedLocation.Accuracy = avgAccuracy
+	simpleLocation.EstimatedLocation.AccessPointsUsed = len(validResults)
+	simpleLocation.EstimatedLocation.Note = "Simple centroid calculation (RSSI not available)"
+	simpleLocation.EstimatedLocation.GoogleMapsLink = fmt.Sprintf("https://maps.google.com/maps?q=%.6f,%.6f", avgLat, avgLon)
+
+	// Only include individual access points if showAPs is true
+	if showAPs {
+		simpleLocation.AccessPoints = validResults
+	}
+
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(simpleLocation)
+
+	case "yaml":
+		return outputResultsWithSimpleLocation(results, "json", showAPs)
+
+	default: // table
+		fmt.Printf("Estimated Location (centroid of %d access points):\n", len(validResults))
+		fmt.Printf("  Latitude:     %.6f\n", avgLat)
+		fmt.Printf("  Longitude:    %.6f\n", avgLon)
+		fmt.Printf("  Accuracy:     ~%d meters (average)\n", avgAccuracy)
+		fmt.Printf("  Google Maps:  %s\n", simpleLocation.EstimatedLocation.GoogleMapsLink)
+		fmt.Printf("  Note:         %s\n", simpleLocation.EstimatedLocation.Note)
+
+		// Only show individual access points if showAPs flag is set
+		if showAPs {
+			fmt.Printf("\nIndividual Access Points:\n")
+			return outputTable(validResults)
+		}
+		
+		return nil
+	}
+}
+
+func scanRun(cmd *cobra.Command, args []string) error {
+	logger := setupLogger()
+
+	// Create WiFi scanner
+	scanner, err := wifi.NewScanner(logger)
+	if err != nil {
+		return fmt.Errorf("failed to create WiFi scanner: %w", err)
+	}
+	defer scanner.Close()
+
+	// Validate WiFi interface availability
+	if err := scanner.ValidateInterface(); err != nil {
+		return fmt.Errorf("WiFi interface validation failed: %w", err)
+	}
+
+	logger.Info("Scanning for nearby WiFi networks...")
+
+	// Get max networks limit from flags
+	maxNetworks, _ := cmd.Flags().GetInt("max-networks")
+	
+	// Scan for networks
+	var wifiInputs []types.WifiInput
+	if maxNetworks > 0 {
+		wifiInputs, err = scanner.ScanWithOptions(-100, maxNetworks) // Use -100 as "no RSSI filter"
+	} else {
+		wifiInputs, err = scanner.ScanNetworks()
+	}
+	
+	if err != nil {
+		return fmt.Errorf("failed to scan WiFi networks: %w", err)
+	}
+
+	if len(wifiInputs) == 0 {
+		logger.Warn("No WiFi networks found")
+		return nil
+	}
+
+	logger.WithField("networks_found", len(wifiInputs)).Info("WiFi scan completed")
+
+	// Output results based on format
+	format, _ := cmd.Flags().GetString("format")
+	return outputScanResults(wifiInputs, format)
+}
+
+func outputScanResults(wifiInputs []types.WifiInput, format string) error {
+	switch format {
+	case "json":
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(wifiInputs)
+
+	case "args":
+		// Format suitable for use as arguments to the locate command
+		for _, input := range wifiInputs {
+			if input.RSSI != nil {
+				fmt.Printf("%s:%d ", input.BSSID, *input.RSSI)
+			} else {
+				fmt.Printf("%s ", input.BSSID)
+			}
+		}
+		fmt.Println() // Add newline at the end
+		return nil
+
+	case "table":
+		fallthrough
+	default:
+		return outputScanTable(wifiInputs)
+	}
+}
+
+func outputScanTable(wifiInputs []types.WifiInput) error {
+	fmt.Printf("%-18s %-10s\n", "BSSID", "RSSI")
+	fmt.Printf("%-18s %-10s\n", strings.Repeat("-", 18), strings.Repeat("-", 10))
+
+	for _, input := range wifiInputs {
+		rssiStr := "N/A"
+		if input.RSSI != nil {
+			rssiStr = fmt.Sprintf("%d dBm", *input.RSSI)
+		}
+		fmt.Printf("%-18s %-10s\n", input.BSSID, rssiStr)
+	}
+
+	fmt.Printf("\nFound %d WiFi networks\n", len(wifiInputs))
 	return nil
 }

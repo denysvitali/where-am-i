@@ -18,5 +18,3 @@ result-*
 # OS
 .DS_Store
 Thumbs.db
-
-**/*.pb.go

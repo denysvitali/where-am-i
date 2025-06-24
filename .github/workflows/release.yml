@@ -26,9 +26,6 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Generate protobuf files
-      run: buf generate
-
     - name: Run GoReleaser
       uses: goreleaser/goreleaser-action@v6
       with:

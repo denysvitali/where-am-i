@@ -26,14 +26,6 @@ jobs:
         go get -u ./...
         go mod tidy
 
-    - name: Set up Buf
-      uses: bufbuild/buf-setup-action@v1
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Generate protobuf files
-      run: buf generate
-
     - name: Run tests
       run: go test ./...
 

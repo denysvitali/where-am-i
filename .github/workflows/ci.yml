@@ -39,14 +39,6 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
 
-    - name: Set up Buf
-      uses: bufbuild/buf-setup-action@v1
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Generate protobuf files
-      run: buf generate
-
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.out ./...
 
@@ -75,9 +67,6 @@ jobs:
       uses: bufbuild/buf-setup-action@v1
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Generate protobuf files
-      run: buf generate
 
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v6
@@ -109,9 +98,6 @@ jobs:
       uses: bufbuild/buf-setup-action@v1
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Generate protobuf files
-      run: buf generate
 
     - name: Build
       run: |

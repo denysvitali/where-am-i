@@ -5,29 +5,33 @@ Find your location using WiFi networks via Apple's Wireless Positioning System.
 ## Quick Start
 
 ```bash
-# Clone and build
-git clone https://github.com/denysvitali/where-am-i
-cd where-am-i
-make build
+# Install
+go install github.com/denysvitali/where-am-i/cmd/where-am-i@latest
 
 # Find location using WiFi MAC addresses
-./bin/where-am-i locate aa:bb:cc:dd:ee:ff 11:22:33:44:55:66
+where-am-i locate aa:bb:cc:dd:ee:ff 11:22:33:44:55:66
 
 # Output as JSON
-./bin/where-am-i locate --format json aa:bb:cc:dd:ee:ff
+where-am-i locate --format json aa:bb:cc:dd:ee:ff
 ```
 
 ## Installation
 
-**Option 1: With Nix (recommended)**
+**Option 1: Direct install (recommended)**
 ```bash
-nix develop
-make build
+go install github.com/denysvitali/where-am-i/cmd/where-am-i@latest
 ```
 
-**Option 2: Manual**
+**Option 2: Build from source**
 ```bash
-# Requires Go 1.22+, buf, protoc
+git clone https://github.com/denysvitali/where-am-i
+cd where-am-i
+go build -o where-am-i ./cmd/where-am-i
+```
+
+**Option 3: With Nix**
+```bash
+nix develop
 make build
 ```
 

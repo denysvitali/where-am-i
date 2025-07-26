@@ -245,11 +245,11 @@ func locateRun(cmd *cobra.Command, args []string) error {
 
 	// Check if auto-scan is enabled
 	autoScan, _ := cmd.Flags().GetBool("auto-scan")
-	
+
 	if autoScan && len(args) == 0 {
 		// Auto-scan for WiFi networks
 		logger.Info("Auto-scanning for nearby WiFi networks...")
-		
+
 		scanner, err := wifi.NewScanner(logger)
 		if err != nil {
 			return fmt.Errorf("failed to create WiFi scanner: %w", err)
@@ -263,7 +263,7 @@ func locateRun(cmd *cobra.Command, args []string) error {
 		// Get max networks and min RSSI from configuration
 		maxNetworks, _ := cmd.Flags().GetInt("max-networks")
 		minRSSI, _ := cmd.Flags().GetInt32("min-rssi")
-		
+
 		wifiInputs, err = scanner.ScanWithOptions(minRSSI, maxNetworks)
 		if err != nil {
 			return fmt.Errorf("failed to scan WiFi networks: %w", err)
@@ -279,7 +279,7 @@ func locateRun(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return fmt.Errorf("no WiFi inputs provided (use --auto-scan to scan automatically)")
 		}
-		
+
 		wifiInputs, err = applewps.ParseWifiInputs(args)
 		if err != nil {
 			return fmt.Errorf("failed to parse WiFi inputs: %w", err)
@@ -293,43 +293,15 @@ func locateRun(cmd *cobra.Command, args []string) error {
 	client := applewps.NewClient(&config, logger)
 	logger.WithField("wifi_inputs", len(wifiInputs)).Info("Querying Apple WPS for positioning data")
 
-	// Check if any inputs have RSSI values
-	hasRSSI := false
-	for _, input := range wifiInputs {
-		if input.RSSI != nil {
-			hasRSSI = true
-			break
-		}
+	// Always use the RSSI-aware method and attempt triangulation
+	// This ensures we always get a Google Maps link, even without RSSI values
+	results, tri, err := client.FetchPositioningDataWithRSSI(wifiInputs)
+	if err != nil {
+		return fmt.Errorf("failed to fetch positioning data: %w", err)
 	}
 
-	if hasRSSI {
-		// Use new method with RSSI support and triangulation
-		results, tri, err := client.FetchPositioningDataWithRSSI(wifiInputs)
-		if err != nil {
-			return fmt.Errorf("failed to fetch positioning data with RSSI: %w", err)
-		}
-		showAPs, _ := cmd.Flags().GetBool("show-aps")
-		return outputResultsWithTriangulation(results, tri, format, showAPs)
-	} else {
-		// Fall back to original method, but try to provide a best-guess location
-		var bssids []string
-		for _, input := range wifiInputs {
-			bssids = append(bssids, input.BSSID)
-		}
-
-		results, err := client.FetchNearbyApPositioningData(bssids)
-		if err != nil {
-			return fmt.Errorf("failed to fetch positioning data: %w", err)
-		}
-
-		// If we have multiple access points, try to calculate a simple centroid
-		// This gives a better user experience than just showing individual APs
-		if len(results) > 1 && autoScan {
-			return outputResultsWithSimpleLocation(results, format, false)
-		} else {
-			return outputResults(results, format)
-		}
-	}
+	showAPs, _ := cmd.Flags().GetBool("show-aps")
+	return outputResultsWithTriangulation(results, tri, format, showAPs)
 }
 
 func outputResults(results []types.WifiApPositioningData, format string) error {
@@ -521,12 +493,12 @@ func outputResultsWithSimpleLocation(results []types.WifiApPositioningData, form
 	// Create a simple location result
 	simpleLocation := struct {
 		EstimatedLocation struct {
-			Latitude        float64 `json:"latitude"`
-			Longitude       float64 `json:"longitude"`
-			Accuracy        int     `json:"accuracy_meters"`
-			GoogleMapsLink  string  `json:"google_maps_link"`
-			AccessPointsUsed int    `json:"access_points_used"`
-			Note            string  `json:"note"`
+			Latitude         float64 `json:"latitude"`
+			Longitude        float64 `json:"longitude"`
+			Accuracy         int     `json:"accuracy_meters"`
+			GoogleMapsLink   string  `json:"google_maps_link"`
+			AccessPointsUsed int     `json:"access_points_used"`
+			Note             string  `json:"note"`
 		} `json:"estimated_location"`
 		AccessPoints []types.WifiApPositioningData `json:"access_points,omitempty"`
 	}{}
@@ -565,7 +537,7 @@ func outputResultsWithSimpleLocation(results []types.WifiApPositioningData, form
 			fmt.Printf("\nIndividual Access Points:\n")
 			return outputTable(validResults)
 		}
-		
+
 		return nil
 	}
 }
@@ -593,7 +565,7 @@ func scanRun(cmd *cobra.Command, args []string) error {
 
 	// Get max networks limit from flags
 	maxNetworks, _ := cmd.Flags().GetInt("max-networks")
-	
+
 	// Scan for networks
 	var wifiInputs []types.WifiInput
 	if maxNetworks > 0 {
@@ -601,7 +573,7 @@ func scanRun(cmd *cobra.Command, args []string) error {
 	} else {
 		wifiInputs, err = scanner.ScanNetworks()
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to scan WiFi networks: %w", err)
 	}

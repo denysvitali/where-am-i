@@ -295,7 +295,7 @@ func locateRun(cmd *cobra.Command, args []string) error {
 
 	// Always use the RSSI-aware method and attempt triangulation
 	// This ensures we always get a Google Maps link, even without RSSI values
-	results, tri, err := client.FetchPositioningDataWithRSSI(wifiInputs)
+	results, tri, err := client.FetchPositioningDataWithRSSI(cmd.Context(), wifiInputs)
 	if err != nil {
 		return fmt.Errorf("failed to fetch positioning data: %w", err)
 	}

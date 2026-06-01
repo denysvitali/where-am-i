@@ -67,6 +67,31 @@ Or use environment variables:
 export WHERE_AM_I_SERVER_URL="https://gs-loc.apple.grapheneos.org/clls/wloc"
 ```
 
+## Use as a Go library
+
+The WPS client is importable via `pkg/wps` (the CLI is a thin wrapper over it):
+
+```go
+import "github.com/denysvitali/where-am-i/pkg/wps"
+
+c := wps.New(
+    wps.WithEndpoint(wps.EndpointGrapheneOS), // or wps.EndpointApple (default)
+)
+
+// Per-AP locations:
+aps, err := c.Lookup(ctx, []string{"aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66"})
+
+// Or a triangulated estimate from RSSI observations:
+pos, used, err := c.Locate(ctx, []wps.Observation{
+    {BSSID: "aa:bb:cc:dd:ee:ff", RSSI: ptr(int32(-45))},
+})
+// pos.Latitude, pos.Longitude, pos.AccuracyMeters, pos.ConfidenceScore
+```
+
+`Lookup`/`Locate` return `wps.ErrNoResults` when Apple resolves none of the
+BSSIDs. Options: `WithEndpoint`, `WithUserAgent`, `WithTimeout`, `WithModernTLS`,
+`WithMaxRequestNetworks`, `WithMinRSSI`, `WithLogger`.
+
 ## Development
 
 ```bash

@@ -2,6 +2,7 @@ package applewps
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
@@ -52,7 +53,7 @@ func NewClient(config *types.Config, logger *logrus.Logger) *Client {
 }
 
 // FetchNearbyApPositioningData fetches positioning data for nearby access points
-func (c *Client) FetchNearbyApPositioningData(bssids []string) ([]types.WifiApPositioningData, error) {
+func (c *Client) FetchNearbyApPositioningData(ctx context.Context, bssids []string) ([]types.WifiApPositioningData, error) {
 	// Limit request BSSIDs to max allowed
 	requestBssids := bssids
 	if len(bssids) > c.config.Request.MaxRequestNetworks {
@@ -70,7 +71,7 @@ func (c *Client) FetchNearbyApPositioningData(bssids []string) ([]types.WifiApPo
 		"max_additional": maxAdditionalResults,
 	}).Debug("Fetching positioning data")
 
-	response, err := c.fetchInner(requestBssids, maxAdditionalResults)
+	response, err := c.fetchInner(ctx, requestBssids, maxAdditionalResults)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch positioning data: %w", err)
 	}
@@ -120,7 +121,7 @@ func ref[T any](v T) *T {
 }
 
 // fetchInner performs the actual HTTP request to Apple WPS
-func (c *Client) fetchInner(bssids []string, maxAdditionalResults int) (*pb.ALSLocationResponse, error) {
+func (c *Client) fetchInner(ctx context.Context, bssids []string, maxAdditionalResults int) (*pb.ALSLocationResponse, error) {
 	// Create protobuf request
 	wirelessAPs := make([]*pb.WirelessAP, len(bssids))
 	for i, bssid := range bssids {
@@ -183,7 +184,7 @@ func (c *Client) fetchInner(bssids []string, maxAdditionalResults int) (*pb.ALSL
 	buf.Write(protobufData)
 
 	// Create HTTP request
-	req, err := http.NewRequest("POST", c.config.Server.URL, &buf)
+	req, err := http.NewRequestWithContext(ctx, "POST", c.config.Server.URL, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -299,7 +300,7 @@ func convertPositioningData(location *pb.ALSLocation) *types.PositioningData {
 
 // FetchPositioningDataWithRSSI fetches positioning data for WiFi access points with RSSI values
 // and performs triangulation to estimate location
-func (c *Client) FetchPositioningDataWithRSSI(wifiInputs []types.WifiInput) ([]types.WifiApPositioningData, *triangulation.TriangulationResult, error) {
+func (c *Client) FetchPositioningDataWithRSSI(ctx context.Context, wifiInputs []types.WifiInput) ([]types.WifiApPositioningData, *triangulation.TriangulationResult, error) {
 	// Filter out weak signals if RSSI filtering is enabled
 	var filteredInputs []types.WifiInput
 	for _, input := range wifiInputs {
@@ -325,7 +326,7 @@ func (c *Client) FetchPositioningDataWithRSSI(wifiInputs []types.WifiInput) ([]t
 	}
 
 	// Fetch positioning data using existing method
-	apData, err := c.FetchNearbyApPositioningData(bssids)
+	apData, err := c.FetchNearbyApPositioningData(ctx, bssids)
 	if err != nil {
 		return nil, nil, err
 	}

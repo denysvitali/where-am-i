@@ -158,18 +158,26 @@ func init() {
 
 // initConfig reads in config file and ENV variables
 func initConfig() {
-	if cfgFile != "" {
-		// Use config file from the flag
-		viper.SetConfigFile(cfgFile)
+	configureViper(viper.GetViper(), cfgFile)
+}
+
+// configureViper wires v with the file at configPath (if non-empty) or
+// the XDG config dir, then sets environment bindings and defaults.
+// Extracted from initConfig so tests can exercise the search-path logic
+// against a local viper without mutating the global one.
+func configureViper(v *viper.Viper, configPath string) {
+	if configPath != "" {
+		v.SetConfigFile(configPath)
 	} else {
-		// Use XDG Base Directory specification
+		// Use XDG Base Directory specification. We intentionally do NOT
+		// also search "." so running from inside another project (e.g. one
+		// with its own config.yaml) does not silently shadow the global
+		// config. Use --config to point at a project-local file.
 		configDir := xdg.ConfigHome + "/where-am-i"
 
-		// Search config in XDG config directory and current directory
-		viper.AddConfigPath(configDir)
-		viper.AddConfigPath(".")
-		viper.SetConfigType("yaml")
-		viper.SetConfigName("config")
+		v.AddConfigPath(configDir)
+		v.SetConfigType("yaml")
+		v.SetConfigName("config")
 	}
 
 	// Environment variables
@@ -196,11 +204,15 @@ func initConfig() {
 	viper.SetDefault("request.software_build", defaultConfig.Request.SoftwareBuild)
 	viper.SetDefault("request.product_id", defaultConfig.Request.ProductID)
 
-	// If a config file is found, read it in
-	if err := viper.ReadInConfig(); err == nil {
-		if verbose {
-			fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	// If a config file is found, read it in. A not-found error is normal
+	// (we search dedicated config dirs only); surface other errors so they
+	// do not get silently swallowed.
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			fmt.Fprintf(os.Stderr, "warning: reading config file %q: %v\n", viper.ConfigFileUsed(), err)
 		}
+	} else if verbose {
+		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
 }
 
